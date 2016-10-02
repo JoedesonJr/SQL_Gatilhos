@@ -1,0 +1,169 @@
+CREATE DATABASE trabalho2;
+
+CREATE TABLE predio(
+	codPredio int,
+	nomePredio varchar(20),
+	PRIMARY KEY (codPredio)
+);
+
+INSERT INTO predio VALUES (1, 'predio1');
+
+SELECT * FROM predio;
+
+
+CREATE TABLE bloco(
+	codBloco int,
+	nomeBloco varchar(20),
+	PRIMARY KEY (codBloco),
+	codPredio int,
+	FOREIGN KEY (codPredio) REFERENCES predio (codPredio)
+);
+
+INSERT INTO bloco VALUES (1, 'bloco a', 1);
+INSERT INTO bloco VALUES (2, 'bloco b', 1);
+
+SELECT * FROM bloco;
+
+
+CREATE TABLE apartamento(
+	codApartamento int,
+	capacidadeMoradores int,
+	PRIMARY KEY (codApartamento),
+	codBloco int,
+	FOREIGN KEY (codBloco) REFERENCES bloco (codBloco)
+);
+
+INSERT INTO apartamento VALUES (100, 3, 1);
+INSERT INTO apartamento VALUES (101, 4, 1);
+INSERT INTO apartamento VALUES (200, 2, 2);
+INSERT INTO apartamento VALUES (201, 3, 2);
+
+SELECT * FROM apartamento;
+
+
+CREATE TABLE morador(
+	codMorador int,
+	nomeMorador varchar(20),
+	PRIMARY KEY (codMorador),
+	codApartamento int,
+	FOREIGN KEY (codApartamento) REFERENCES apartamento (codApartamento)
+);
+
+INSERT INTO morador VALUES (1, 'morador1', 100);
+INSERT INTO morador VALUES (2, 'morador2', 100);
+INSERT INTO morador VALUES (3, 'morador3', 101);
+INSERT INTO morador VALUES (4, 'morador4', 101);
+INSERT INTO morador VALUES (5, 'morador5', 200);
+INSERT INTO morador VALUES (6, 'morador6', 201);
+INSERT INTO morador VALUES (7, 'morador7', 201);
+INSERT INTO morador VALUES (8, 'morador8', 201);
+
+SELECT * FROM morador;
+
+
+CREATE TABLE zelador(
+	codMorador int,
+	codBloco int,
+	FOREIGN KEY (codMorador) REFERENCES morador (codMorador),
+	FOREIGN KEY (codBLoco) REFERENCES bloco(codBLoco),
+	PRIMARY KEY (codMorador, codBLoco)
+);
+
+INSERT INTO zelador VALUES (1, 1);
+INSERT INTO zelador VALUES (2, 1);
+INSERT INTO zelador VALUES (8, 2);
+
+SELECT * FROM zelador;
+
+
+CREATE TABLE despesas(
+	codDespesa int,
+	nomeDespesa varchar(20),
+	valorIndividual float,
+	PRIMARY KEY (codDespesa)
+);
+
+INSERT INTO despesas VALUES (1, 'condominio', 5.0);
+INSERT INTO despesas VALUES (2, 'gas', 10);
+INSERT INTO despesas VALUES (3, 'agua', 20);
+
+SELECT * FROM despesas;
+
+
+CREATE TABLE valor(
+	ano int,
+	mes int,
+	valor float,
+	codApartamento int,
+	FOREIGN KEY (codApartamento) REFERENCES apartamento (codApartamento),
+	PRIMARY KEY (ano, mes, codApartamento)
+);
+
+SELECT * FROM valor;
+
+-- Gatilho pra não permitir inserir mais moradores do que a capacidade de um apartamento
+CREATE TRIGGER altenticaMoradores AFTER update or insert
+ON morador FOR EACH ROW
+EXECUTE PROCEDURE moradoresCadastrados();
+
+
+CREATE FUNCTION moradoresCadastrados() returns TRIGGER AS $$
+
+DECLARE 
+	numeroMoradores int; maximoMoradores int;
+BEGIN
+	-- seleciona o numero de moradores existente no apartamento e salva na variavel numeroMoradores
+	SELECT COUNT(*) INTO numeroMoradores 
+	FROM morador
+	WHERE morador.codApartamento = NEW.codApartamento;
+	-- seleciona a capacidade maxima do apartamento e salva na variavel maximoMoradores
+	SELECT capacidadeMoradores INTO maximoMoradores
+	FROM apartamento
+	WHERE apartamento.codApartamento = NEW.codApartamento;
+	-- se o numero de moradores for maior que a capacidade maxima do apartamento
+	IF numeroMoradores > maximoMoradores THEN
+		-- nao executa o insert/update e mostra a mensagem
+		RAISE EXCEPTION 'Apartamento Cheio';
+	END IF;
+
+	RETURN NEW;
+END;
+$$ LANGUAGE 'plpgsql';
+
+-- funcao para calcular o valor mensal a ser pago por cada apartamento
+CREATE FUNCTION calcularValorMensal(mes int, ano int) returns VARCHAR AS $$
+
+DECLARE 
+	ap RECORD;
+	soma RECORD;
+	somatorio float := 0;
+	numeroMoradores int;
+
+BEGIN
+	-- cada linha de resultado do SELECT é atribuída, sucessivamente, a variavel ap, e o laço é executado uma vez para cada linha
+	FOR ap IN SELECT codApartamento FROM apartamento LOOP
+		-- seleciona o numero de moradores existente no apartamento e salva na variavel numeroMoradores 
+		SELECT COUNT(*) INTO numeroMoradores 
+		FROM morador
+		WHERE morador.codApartamento = ap.codApartamento;
+		-- cada linha de resultado do SELECT é atribuída, sucessivamente, a variavel soma, e o laço é executado uma vez para cada linha
+		FOR soma IN SELECT valorIndividual FROM despesas LOOP
+			-- somatorio é o resultado da multiplicacao de cada despesa com o numero de moradores do apartamento selecionado
+			somatorio := somatorio + (numeroMoradores * soma.valorIndividual);
+		END LOOP;
+		-- depois de realizar a soma das despesas, inserir o valor na tabela valor
+		INSERT INTO valor VALUES (ano, mes, somatorio, ap.codApartamento);
+		-- apos o insert, zera a variavel somatorio para calcular o valor do proximo apartamento
+		somatorio := 0;
+	END LOOP;
+
+	RETURN 'Calculos realizados com sucesso!';
+END;
+$$ LANGUAGE 'plpgsql';
+
+select calcularValorMensal(11,2015);
+
+select * from valor;
+
+
+
